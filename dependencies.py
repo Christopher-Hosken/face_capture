@@ -25,11 +25,15 @@ class InstallDependencies(Operator):
             install_dep(["dlib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "dlib-19.22.99-cp39-cp39-win_amd64.whl")])
         elif (platform.system() == "Linux"):
             install_dep(["dlib", "dlib"])
-        else:
+        elif (platform.system() == "Java" or platform.system() == "Darwin"):
             message = ("\n\n"
                 "Your Operating System is not supported. Sorry!\n"
+                "If you wish to have this system supported, please upload a .whl of dlib.\n"
             )
             raise Exception(message)
+
+        else:
+            raise Exception("Unable to determine Operating System. [PLEASE REPORT THIS]")
 
         return {"FINISHED"}
 
