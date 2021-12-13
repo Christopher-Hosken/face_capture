@@ -32,30 +32,41 @@ bl_info = {
     "category" : "Animation"
 }
 
+from bpy.props import PointerProperty
 from . import auto_load
 from .dependencies import classes as dependency_classes
+from .properties import classes as property_classes
 from .preferences import classes as preference_classes
+from .landmarkdetector import classes as landmark_classes
 from .panel import classes as panel_classes
 
 classes = []
 classes += dependency_classes
+classes += property_classes
 classes += preference_classes
+classes += landmark_classes
 classes += panel_classes
 
 auto_load.init()
 
-
 def register():
+    import bpy
     from bpy.utils import register_class
+    from bpy.props import PointerProperty
 
     for cls in classes:
         register_class(cls)
+    
+    bpy.types.WindowManager.facecapture_props = PointerProperty(type=properties.FaceCapture_UL_Properties)
 
 def unregister():
+    import bpy
     from bpy.utils import unregister_class
     
     for cls in reversed(classes):
         unregister_class(cls)
+    
+    del bpy.types.WindowManager.facecapture_props
 
 if __name__ == "__main__":
     try:

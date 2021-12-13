@@ -10,10 +10,17 @@ class FACECAPTURE_PT_Panel(Panel):
 
     def draw(self, context):
         wm = context.window_manager
+        
         layout = self.layout
-
         row = layout.row()
-        row.operator('', text="Start Live Tracker")
+        row.operator('facecapture.live_detect', text='Start Live Capture', icon='OUTLINER_OB_CAMERA')
+        
+        layout = self.layout
+        row = layout.row()
+        row.prop(wm.facecapture_props, 'video_footage')
+        split = row.split(factor=0.85)
+        col = split.column()
+        col.operator('facecapture.video_detect', text='Run Footage Capture', icon='OUTLINER_OB_CAMERA')
 
 def message_box(msg = "", title="Message Box", icon='INFO'):
     def draw(self, context):
