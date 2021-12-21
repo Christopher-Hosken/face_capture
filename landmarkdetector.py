@@ -1,10 +1,15 @@
 import bpy
 import os
+import numpy as np
 import cv2
 import imutils
 import mediapipe as mp
 from imutils import face_utils
+from imutils.video import WebcamVideoStream, FPS
 from bpy.types import Operator
+from threading import Thread
+
+from mediapipe.python.solutions.face_mesh import FaceMesh
 
 
 class LiveLandmarkDetector(Operator):
@@ -12,112 +17,118 @@ class LiveLandmarkDetector(Operator):
     bl_label = 'Landmark Detector'
     bl_description = 'Detects facial landmarks from live video feed'
 
-    _key = None
-    _timer = None
     _vid = None
+    _timer = None
+    _mpdrawing = None
+    _mpdrawingstyles = None
+    _mpfacemesh = None
+    _facemesh = None
+    _facemodel = None
+    _ratio = None
 
     def modal(self, context, event):
-        # Check if the user has tried closing the live window.
-        if (event.type in {'RIGHTMOUSE', 'ESC'}) == True or self._key == 27:
+        if (event.type in {'ESC'}) or cv2.waitKey(30) & 0xff == 27:
             self.cancel(context)
-            return {'CANCELLED'}
+            return {"CANCELLED"}
 
         if event.type == 'TIMER':
-            self.init_vid()  # Initiate camera.
-            __, image = self._vid.read()  # Read the camera feed.
+            self.init_vid()
+            self.init_model()
 
-            mp_face_mesh = mp.solutions.face_mesh
-            face_mesh = mp_face_mesh.FaceMesh()
+            success, image = self._vid.read()
 
-            #image = imutils.resize(image, width=480, height=320)
-            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            if self._ratio == None:
+                self._ratio = self._vid.get(cv2.CAP_PROP_FRAME_HEIGHT) / self._vid.get(cv2.CAP_PROP_FRAME_WIDTH)
+            
+            if not success:
+                return {'PASS_THROUGH'}
 
-            result = face_mesh.process(rgb_image)
+            # To improve performance, optionally mark the image as not writeable to
+            # pass by reference.
+            image.flags.writeable = False
+            #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            results = self._facemesh.process(image)
 
-            if result.multi_face_landmarks is not None:
-                for facial_landmarks in result.multi_face_landmarks:
-                    for i in range(0, 468):
-                        pt1 = facial_landmarks.landmark[i]
-                        x = int(pt1.x * self._vid.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        y = int(pt1.y * self._vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            if results.multi_face_landmarks:
+                for face_landmarks in results.multi_face_landmarks:
+                    if (self._facemodel != None and self._facemodel != None):
+                        self.update_mask(face_landmarks, self._ratio)
+                    self._mpdrawing.draw_landmarks(
+                        image=image,
+                        landmark_list=face_landmarks,
+                        connections=self._mpfacemesh.FACEMESH_TESSELATION,
+                        landmark_drawing_spec=None,
+                        connection_drawing_spec=self._mpdrawingstyles
+                        .get_default_face_mesh_tesselation_style())
+                    
 
-                        cv2.circle(image, (x, y), 1, (0, 255, 255), -1)
-
-            cv2.imshow("Live Capture", image)
-            cv2.waitKey(1)
-            if cv2.getWindowProperty("Live Capture", cv2.WND_PROP_VISIBLE) < 1:
+            cv2.imshow(context.window_manager.facecapture_props.window_name, image)
+            if cv2.getWindowProperty(context.window_manager.facecapture_props.window_name, cv2.WND_PROP_VISIBLE) < 1:
                 self.cancel(context)
                 return {'CANCELLED'}
 
         return {'PASS_THROUGH'}
 
     def execute(self, context):
-        self._key = cv2.waitKey(30) & 0xff  # Keyboard definition.
-        # Add a timer.
-        self._timer = context.window_manager.event_timer_add(
-            0.02, window=context.window)
-        context.window_manager.modal_handler_add(self)  # Run modal.
+        self.init_vid()
+        self.init_model()
+        self._timer = context.window_manager.event_timer_add(1/100, window=context.window)
+        context.window_manager.modal_handler_add(self)
+
         return {'RUNNING_MODAL'}
 
     def init_vid(self):
         if self._vid == None:
             self._vid = cv2.VideoCapture(0)
-            self._vid.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self._vid.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    def init_model(self):
+        if self._mpdrawing == None:
+            self._mpdrawing = mp.solutions.drawing_utils
+
+        if self._mpdrawingstyles == None:
+            self._mpdrawingstyles = mp.solutions.drawing_styles
+
+        if self._facemesh == None or self._mpfacemesh == None:
+            self._mpfacemesh = mp.solutions.face_mesh
+
+            self._facemesh = self._mpfacemesh.FaceMesh(
+                max_num_faces = 1,
+                refine_landmarks = True,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5,
+            )
+
+        if self._facemodel == None:
+            bpy.ops.import_scene.obj(filepath=os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "canonical_face_model.obj"), split_mode='OFF')
+            self._facemodel = bpy.context.selected_objects[0]
+            print(self._facemodel)
 
     def cancel(self, context):
-        # Remove the timer.
         context.window_manager.event_timer_remove(self._timer)
-        self._vid.release()  # Stop the camera.
-        self._vid = None
-        cv2.destroyAllWindows()  # Destroy the live window.
-
-
-class VideoLandmarkDetector(Operator):
-    bl_idname = 'facecapture.video_detect'
-    bl_label = 'Landmark Detector'
-    bl_description = 'Detects facial landmarks from live video feed'
-
-    def execute(self, context):
-        wm = context.window_manager
-
-        self._vid = cv2.VideoCapture(wm.facecapture_props.video_footage)
-        #self._vid.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        #self._vid.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-        while (self._vid.isOpened()):
-
-            __, image = self._vid.read()  # Read the camera feed.
-
-            mp_face_mesh = mp.solutions.face_mesh
-            face_mesh = mp_face_mesh.FaceMesh()
-
-            #image = imutils.resize(image, width=480, height=320)
-            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-            result = face_mesh.process(rgb_image)
-
-            if result.multi_face_landmarks is not None:
-                for facial_landmarks in result.multi_face_landmarks:
-                    for i in range(0, 468):
-                        pt1 = facial_landmarks.landmark[i]
-                        x = int(pt1.x * self._vid.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        y = int(pt1.y * self._vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-                        cv2.circle(image, (x, y), 1, (0, 255, 255), -1)
-
-            cv2.imshow("Playback", image)
-            cv2.waitKey(1)
-            if cv2.getWindowProperty("Playback", cv2.WND_PROP_VISIBLE) < 1:
-                return {'CANCELLED'}
-
-            key = cv2.waitKey(30) & 0xff  # Check if the esc key is pressed.
-            if key == 27:
-                return {'CANCELLED'}
-
-        cv2.destroyAllWindows()
         self._vid.release()
-        return {'FINISHED'}
+        cv2.destroyAllWindows()
+        self._vid = None
+        self._facemesh = None
+        self._mpdrawing = None
+        self._mpdrawingstyles = None
+        self._mpfacemesh = None
+        self._ratio = None
+        bpy.data.objects.remove(self._facemodel, do_unlink=True)
+        self._facemesh = None
+
+    
+    def update_mask(self, face, ratio):
+        mesh = bpy.data.objects.get(self._facemodel.name).data
+        scale = 10
+        for i in range(0, len(face.landmark) + 1):
+            if (i > 467):
+                continue
+            v = mesh.vertices[i]
+            v.co[0] = face.landmark[i].x * (1 / ratio)
+            v.co[1] = face.landmark[i].z 
+            v.co[2] = face.landmark[i].y
+
+        
 
 
-classes = [LiveLandmarkDetector, VideoLandmarkDetector]
+classes = [LiveLandmarkDetector]

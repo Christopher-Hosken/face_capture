@@ -32,7 +32,6 @@ bl_info = {
     "category" : "Animation"
 }
 
-from bpy.props import PointerProperty
 from . import auto_load
 from .dependencies import classes as dependency_classes
 from .properties import classes as property_classes
